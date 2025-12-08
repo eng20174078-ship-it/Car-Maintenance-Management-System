@@ -1,2 +1,24 @@
-# Car-Maintenance-Management-System
-The Car Maintenance Management System is a software application designed to automate and organize the operations of vehicle repair workshops and service centers. The system allows users to register vehicles, create maintenance orders, assign technicians, manage spare parts, and generate invoices.
+# Car Maintenance Management System
+
+نظام متكامل لإدارة ورش صيانة السيارات باستخدام Java وMySQL.
+
+## المميزات:
+- إدارة العملاء والمركبات
+- إدارة الفنيين والتخصصات
+- إدارة مخزون قطع الغيار
+- نظام طلبات الصيانة الكامل
+- نظام الفواتير والحسابات المالية
+- لوحة تحكم مع إحصائيات حية
+- واجهة عربية كاملة
+
+## التقنيات المستخدمة:
+- Java 17
+- MySQL
+- Swing للواجهة الرسومية
+- JDBC للاتصال بقاعدة البيانات
+- Maven لإدارة التبعيات
+
+## كيفية التشغيل:
+1. قم بتشغيل MySQL
+2. عدّل إعدادات الاتصال في config.properties
+3. شغل المشروع: `mvn compile exec:java`
