@@ -144,10 +144,10 @@ public class InvoiceDAO {
         String sql = "SELECT * FROM invoices WHERE id = ?";
 
         try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+             PreparedStatement pstmt = conn.prepareStatement(sql);
+             ResultSet rs = pstmt.executeQuery()) {
 
             pstmt.setInt(1, id);
-            ResultSet rs = pstmt.executeQuery();
 
             if (rs.next()) {
                 Invoice invoice = resultSetToInvoice(rs);
@@ -166,10 +166,10 @@ public class InvoiceDAO {
         String sql = "SELECT * FROM invoices WHERE order_id = ?";
 
         try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+             PreparedStatement pstmt = conn.prepareStatement(sql);
+             ResultSet rs = pstmt.executeQuery()) {
 
             pstmt.setInt(1, orderId);
-            ResultSet rs = pstmt.executeQuery();
 
             if (rs.next()) {
                 Invoice invoice = resultSetToInvoice(rs);
@@ -274,7 +274,7 @@ public class InvoiceDAO {
 
     // إجمالي المبيعات
     public double getTotalSales() {
-        String sql = "SELECT SUM(final_amount) as total_sales FROM (SELECT total_amount + tax_amount - discount_amount as final_amount FROM invoices WHERE paid = true) as sales";
+        String sql = "SELECT SUM(total_amount + tax_amount - discount_amount) as total_sales FROM invoices WHERE paid = true";
 
         try (Connection conn = DatabaseConnection.getConnection();
              Statement stmt = conn.createStatement();
@@ -322,38 +322,41 @@ public class InvoiceDAO {
              Statement stmt = conn.createStatement()) {
 
             // الفواتير المتأخرة
-            ResultSet rs = stmt.executeQuery(
+            try (ResultSet rs = stmt.executeQuery(
                     "SELECT COUNT(*) as overdue_count, SUM(total_amount + tax_amount - discount_amount) as overdue_amount " +
-                            "FROM invoices WHERE paid = false AND due_date < CURRENT_TIMESTAMP");
-            if (rs.next()) {
-                stats.append("⚠️ الفواتير المتأخرة: ").append(rs.getInt("overdue_count"))
-                        .append(" (قيمة: ").append(String.format("%.2f", rs.getDouble("overdue_amount"))).append(")\n");
+                            "FROM invoices WHERE paid = false AND due_date < CURRENT_TIMESTAMP")) {
+                if (rs.next()) {
+                    stats.append("⚠️ الفواتير المتأخرة: ").append(rs.getInt("overdue_count"))
+                            .append(" (قيمة: ").append(String.format("%.2f", rs.getDouble("overdue_amount"))).append(")\n");
+                }
             }
 
             // حسب طريقة الدفع
-            rs = stmt.executeQuery(
-                    "SELECT payment_method, COUNT(*) as count, SUM(total_amount + tax_amount - discount_amount) as amount " +
-                            "FROM invoices WHERE paid = true GROUP BY payment_method ORDER BY amount DESC");
             stats.append("\n💳 حسب طريقة الدفع:\n");
-            while (rs.next()) {
-                stats.append("   • ").append(rs.getString("payment_method"))
-                        .append(": ").append(rs.getInt("count")).append(" فاتورة، ")
-                        .append(String.format("%.2f", rs.getDouble("amount"))).append("\n");
+            try (ResultSet rs = stmt.executeQuery(
+                    "SELECT payment_method, COUNT(*) as count, SUM(total_amount + tax_amount - discount_amount) as amount " +
+                            "FROM invoices WHERE paid = true GROUP BY payment_method ORDER BY amount DESC")) {
+                while (rs.next()) {
+                    stats.append("   • ").append(rs.getString("payment_method"))
+                            .append(": ").append(rs.getInt("count")).append(" فاتورة، ")
+                            .append(String.format("%.2f", rs.getDouble("amount"))).append("\n");
+                }
             }
 
             // الإيرادات الشهرية
-            rs = stmt.executeQuery(
+            stats.append("\n📅 الإيرادات الشهرية (آخر 6 أشهر):\n");
+            try (ResultSet rs = stmt.executeQuery(
                     "SELECT MONTH(issued_date) as month, YEAR(issued_date) as year, " +
                             "COUNT(*) as count, SUM(total_amount + tax_amount - discount_amount) as revenue " +
                             "FROM invoices WHERE paid = true " +
                             "GROUP BY YEAR(issued_date), MONTH(issued_date) " +
                             "ORDER BY year DESC, month DESC " +
-                            "LIMIT 6");
-            stats.append("\n📅 الإيرادات الشهرية (آخر 6 أشهر):\n");
-            while (rs.next()) {
-                stats.append("   • ").append(rs.getInt("year")).append("-").append(rs.getInt("month"))
-                        .append(": ").append(rs.getInt("count")).append(" فاتورة، ")
-                        .append(String.format("%.2f", rs.getDouble("revenue"))).append("\n");
+                            "LIMIT 6")) {
+                while (rs.next()) {
+                    stats.append("   • ").append(rs.getInt("year")).append("-").append(rs.getInt("month"))
+                            .append(": ").append(rs.getInt("count")).append(" فاتورة، ")
+                            .append(String.format("%.2f", rs.getDouble("revenue"))).append("\n");
+                }
             }
 
         } catch (SQLException e) {
@@ -399,5 +402,56 @@ public class InvoiceDAO {
     private void loadRelatedData(Invoice invoice) {
         MaintenanceOrder order = orderDAO.getMaintenanceOrderById(invoice.getOrderId());
         invoice.setOrder(order);
+    }
+
+    // دالة مساعدة للحصول على فواتير الشهر الحالي
+    public List<Invoice> getCurrentMonthInvoices() {
+        List<Invoice> invoices = new ArrayList<>();
+        String sql = "SELECT * FROM invoices WHERE MONTH(issued_date) = MONTH(CURRENT_DATE()) " +
+                "AND YEAR(issued_date) = YEAR(CURRENT_DATE()) ORDER BY issued_date DESC";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                Invoice invoice = resultSetToInvoice(rs);
+                loadRelatedData(invoice);
+                invoices.add(invoice);
+            }
+
+            System.out.println("📅 تم جلب " + invoices.size() + " فاتورة لهذا الشهر");
+
+        } catch (SQLException e) {
+            System.err.println("❌ خطأ في جلب فواتير الشهر الحالي: " + e.getMessage());
+        }
+        return invoices;
+    }
+
+    // دالة مساعدة للحصول على فواتير لفترة محددة
+    public List<Invoice> getInvoicesByDateRange(LocalDateTime startDate, LocalDateTime endDate) {
+        List<Invoice> invoices = new ArrayList<>();
+        String sql = "SELECT * FROM invoices WHERE issued_date BETWEEN ? AND ? ORDER BY issued_date DESC";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setTimestamp(1, Timestamp.valueOf(startDate));
+            pstmt.setTimestamp(2, Timestamp.valueOf(endDate));
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    Invoice invoice = resultSetToInvoice(rs);
+                    loadRelatedData(invoice);
+                    invoices.add(invoice);
+                }
+            }
+
+            System.out.println("📅 تم جلب " + invoices.size() + " فاتورة للفترة المحددة");
+
+        } catch (SQLException e) {
+            System.err.println("❌ خطأ في جلب الفواتير للفترة المحددة: " + e.getMessage());
+        }
+        return invoices;
     }
 }
